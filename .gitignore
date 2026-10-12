@@ -1,0 +1,33 @@
+﻿.venv/
+venv/
+data/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+models/
+*.pth
+*.pt
+.DS_Store
+Thumbs.db
+@"
+# Environnement virtuel
+.venv/
+venv/
+
+# Dataset (trop lourd, à télécharger séparément)
+data/
+
+# Fichiers temporaires Python
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# Checkpoints de modèle volumineux
+models/
+*.pth
+*.pt
+
+# Fichiers système
+.DS_Store
+Thumbs.db
+"@ | Set-Content -Path .gitignore -Encoding utf8
