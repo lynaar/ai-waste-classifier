@@ -24,7 +24,12 @@ from data_utils import CLASSES, WasteDataset, get_transforms, load_splits
 from model import build_model
 
 MODES = ["head", "finetune"]
-TITLES = {"head": "A : couche finale seule", "finetune": "B : fine-tuning de layer4"}
+TITLES = {
+    "head": "A : couche finale seule",
+    "finetune": "B : fine-tuning de layer4",
+    "C": "C : layer3+4, augmentation forte",
+    "D": "D : C + objet réduit sur fonds synthétiques",
+}
 
 
 def load_model(path: Path, device):
@@ -83,13 +88,14 @@ def plot_examples(test_df, y_true, y_pred, probs, indices, title, path):
     plt.close(fig)
 
 
-def plot_loss_curves(checkpoint_dir: Path, path: Path) -> None:
-    fig, axes = plt.subplots(1, 2, figsize=(11, 4), sharey=True)
-    for ax, mode in zip(axes, MODES):
+def plot_loss_curves(checkpoint_dir: Path, path: Path, modes) -> None:
+    fig, axes = plt.subplots(1, len(modes), figsize=(5.5 * len(modes), 4), sharey=True)
+    axes = np.atleast_1d(axes)
+    for ax, mode in zip(axes, modes):
         history = pd.read_csv(checkpoint_dir / f"history_{mode}.csv")
         ax.plot(history["epoch"], history["train_loss"], label="train")
         ax.plot(history["epoch"], history["val_loss"], label="validation")
-        ax.set_title(TITLES[mode])
+        ax.set_title(TITLES[mode], fontsize=10)
         ax.set_xlabel("Époque")
         ax.legend()
     axes[0].set_ylabel("Loss")
@@ -103,6 +109,7 @@ def main() -> None:
     parser.add_argument("--checkpoint-dir", default="outputs")
     parser.add_argument("--output-dir", default="results")
     parser.add_argument("--batch-size", type=int, default=32)
+    parser.add_argument("--modes", nargs="+", default=MODES)
     args = parser.parse_args()
 
     checkpoint_dir, out_dir = Path(args.checkpoint_dir), Path(args.output_dir)
@@ -115,7 +122,7 @@ def main() -> None:
     print(f"Test set : {len(test_df)} images | Device : {device}\n")
 
     summary = []
-    for mode in MODES:
+    for mode in args.modes:
         model, ckpt = load_model(checkpoint_dir / f"best_{mode}.pth", device)
         y_true, y_pred, probs = predict(model, test_loader, device)
 
@@ -165,7 +172,7 @@ def main() -> None:
                       out_dir / f"examples_errors_{mode}.png")
         print(f"Erreurs : {len(wrong)} / {len(y_true)}\n")
 
-    plot_loss_curves(checkpoint_dir, out_dir / "loss_curves.png")
+    plot_loss_curves(checkpoint_dir, out_dir / "loss_curves.png", args.modes)
 
     summary_df = pd.DataFrame(summary)
     summary_df.to_csv(out_dir / "metrics_comparison.csv", index=False)
