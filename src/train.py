@@ -71,6 +71,8 @@ def main() -> None:
     parser.add_argument("--output-dir", default="outputs")
     parser.add_argument("--strong-aug", action="store_true",
                         help="augmentation de données plus forte (train seulement)")
+    parser.add_argument("--clutter", action="store_true",
+                        help="objet réduit sur fond synthétique (avec --strong-aug)")
     parser.add_argument("--label-smoothing", type=float, default=0.0)
     parser.add_argument("--cosine", action="store_true",
                         help="learning rate décroissant (cosinus) après le dégel")
@@ -91,7 +93,8 @@ def main() -> None:
     history_path = out_dir / f"history_{name}.csv"
 
     train_loader, val_loader, _ = get_dataloaders(
-        args.batch_size, args.num_workers, strong_aug=args.strong_aug
+        args.batch_size, args.num_workers,
+        strong_aug=args.strong_aug, clutter=args.clutter,
     )
 
     model = build_model().to(device)

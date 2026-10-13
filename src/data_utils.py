@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+from PIL import Image, ImageDraw, ImageFilter
+
 import pandas as pd
 from PIL import Image
 from sklearn.model_selection import train_test_split
@@ -76,24 +78,65 @@ def load_splits(splits_dir: Path = SPLITS_DIR):
     )
 
 
-def get_transforms(train: bool, strong: bool = False):
+class ZoomOutOnClutter:
+    """Réduit l'objet et le place sur un fond synthétique (train seulement)."""
+
+    def __init__(self, p: float = 0.5, scale=(0.5, 0.9)):
+        self.p = p
+        self.scale = scale
+
+    @staticmethod
+    def _background(size):
+        w, h = size
+        c1 = tuple(random.randint(0, 255) for _ in range(3))
+        c2 = tuple(random.randint(0, 255) for _ in range(3))
+        gradient = Image.linear_gradient("L").resize((w, h))
+        bg = Image.composite(
+            Image.new("RGB", (w, h), c2), Image.new("RGB", (w, h), c1), gradient
+        )
+        draw = ImageDraw.Draw(bg)
+        for _ in range(random.randint(5, 15)):
+            x0, y0 = random.randint(0, w), random.randint(0, h)
+            x1 = x0 + random.randint(20, max(21, w // 2))
+            y1 = y0 + random.randint(20, max(21, h // 2))
+            color = tuple(random.randint(0, 255) for _ in range(3))
+            if random.random() < 0.5:
+                draw.rectangle([x0, y0, x1, y1], fill=color)
+            else:
+                draw.ellipse([x0, y0, x1, y1], fill=color)
+        return bg.filter(ImageFilter.GaussianBlur(radius=random.uniform(0, 3)))
+
+    def __call__(self, img):
+        if random.random() > self.p:
+            return img
+        w, h = img.size
+        s = random.uniform(*self.scale)
+        small = img.resize((int(w * s), int(h * s)))
+        bg = self._background((w, h))
+        bg.paste(small, (random.randint(0, w - small.width), random.randint(0, h - small.height)))
+        return bg
+
+
+def get_transforms(train: bool, strong: bool = False, clutter: bool = False):
     """Augmentation seulement pour train ; resize + normalisation pour val/test."""
     if train and strong:
-        return transforms.Compose(
-            [
-                transforms.RandomResizedCrop(IMAGE_SIZE, scale=(0.4, 1.0), ratio=(0.75, 1.33)),
-                transforms.RandomHorizontalFlip(),
-                transforms.RandomRotation(25),
-                transforms.ColorJitter(brightness=0.5, contrast=0.5, saturation=0.4, hue=0.05),
-                transforms.RandomGrayscale(p=0.1),
-                transforms.RandomApply(
-                    [transforms.GaussianBlur(kernel_size=5, sigma=(0.1, 2.0))], p=0.3
-                ),
-                transforms.ToTensor(),
-                transforms.Normalize(IMAGENET_MEAN, IMAGENET_STD),
-                transforms.RandomErasing(p=0.25, scale=(0.02, 0.15)),
-            ]
-        )
+        steps = []
+        if clutter:
+            steps.append(ZoomOutOnClutter(p=0.5, scale=(0.5, 0.9)))
+        steps += [
+            transforms.RandomResizedCrop(IMAGE_SIZE, scale=(0.4, 1.0), ratio=(0.75, 1.33)),
+            transforms.RandomHorizontalFlip(),
+            transforms.RandomRotation(25),
+            transforms.ColorJitter(brightness=0.5, contrast=0.5, saturation=0.4, hue=0.05),
+            transforms.RandomGrayscale(p=0.1),
+            transforms.RandomApply(
+                [transforms.GaussianBlur(kernel_size=5, sigma=(0.1, 2.0))], p=0.3
+            ),
+            transforms.ToTensor(),
+            transforms.Normalize(IMAGENET_MEAN, IMAGENET_STD),
+            transforms.RandomErasing(p=0.25, scale=(0.02, 0.15)),
+        ]
+        return transforms.Compose(steps)
     if train:
         return transforms.Compose(
             [
@@ -132,20 +175,3 @@ class WasteDataset(Dataset):
         return image, int(row["label_idx"])
 
 
-def get_dataloaders(batch_size: int = 32, num_workers: int = 0, strong_aug: bool = False):
-    """Charge les CSV et retourne les DataLoaders train / val / test."""
-    train_df, val_df, test_df = load_splits()
-    train_ds = WasteDataset(train_df, get_transforms(train=True, strong=strong_aug))
-    val_ds = WasteDataset(val_df, get_transforms(train=False))
-    test_ds = WasteDataset(test_df, get_transforms(train=False))
-
-    train_loader = DataLoader(
-        train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers
-    )
-    val_loader = DataLoader(
-        val_ds, batch_size=batch_size, shuffle=False, num_workers=num_workers
-    )
-    test_loader = DataLoader(
-        test_ds, batch_size=batch_size, shuffle=False, num_workers=num_workers
-    )
-    return train_loader, val_loader, test_loader
