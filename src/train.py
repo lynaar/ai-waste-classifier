@@ -1,4 +1,4 @@
-"""Étape 3 : entraînement de ResNet18 (config A : head, config B : finetune)."""
+"""Entraînement de ResNet18 : head, finetune (layer4) ou finetune3 (layer3 + layer4)."""
 
 import argparse
 import random
@@ -10,6 +10,7 @@ import pandas as pd
 import torch
 from sklearn.metrics import f1_score
 from torch import nn
+from torch.optim.lr_scheduler import CosineAnnealingLR
 
 from data_utils import CLASSES, SEED, get_dataloaders
 from model import (
@@ -17,6 +18,7 @@ from model import (
     count_trainable,
     freeze_backbone,
     set_train_mode,
+    unfreeze_layer3,
     unfreeze_layer4,
 )
 
@@ -58,51 +60,74 @@ def run_epoch(model, loader, criterion, device, optimizer=None):
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--mode", choices=["head", "finetune"], required=True)
+    parser.add_argument("--mode", choices=["head", "finetune", "finetune3"], required=True)
     parser.add_argument("--epochs", type=int, default=12)
     parser.add_argument("--head-epochs", type=int, default=3,
-                        help="finetune : époques avec la couche finale seule")
+                        help="époques avec la couche finale seule avant le dégel")
     parser.add_argument("--lr-head", type=float, default=1e-3)
     parser.add_argument("--lr-finetune", type=float, default=1e-4)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--num-workers", type=int, default=2)
     parser.add_argument("--output-dir", default="outputs")
+    parser.add_argument("--strong-aug", action="store_true",
+                        help="augmentation de données plus forte (train seulement)")
+    parser.add_argument("--label-smoothing", type=float, default=0.0)
+    parser.add_argument("--cosine", action="store_true",
+                        help="learning rate décroissant (cosinus) après le dégel")
+    parser.add_argument("--tag", default=None,
+                        help="nom des fichiers de sortie (défaut : le mode)")
     args = parser.parse_args()
 
+    name = args.tag or args.mode
     set_seed(SEED)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Device : {device} | Mode : {args.mode}")
+    print(f"Device : {device} | Mode : {args.mode} | Tag : {name}")
+    print(f"Augmentation forte : {args.strong_aug} | Label smoothing : {args.label_smoothing} "
+          f"| Cosine : {args.cosine}")
 
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    ckpt_path = out_dir / f"best_{args.mode}.pth"
-    history_path = out_dir / f"history_{args.mode}.csv"
+    ckpt_path = out_dir / f"best_{name}.pth"
+    history_path = out_dir / f"history_{name}.csv"
 
-    train_loader, val_loader, _ = get_dataloaders(args.batch_size, args.num_workers)
+    train_loader, val_loader, _ = get_dataloaders(
+        args.batch_size, args.num_workers, strong_aug=args.strong_aug
+    )
 
     model = build_model().to(device)
     freeze_backbone(model)
-    criterion = nn.CrossEntropyLoss()
+    # Le label smoothing s'applique à l'entraînement ; la validation utilise la
+    # cross-entropy standard, pour rester comparable aux configurations A et B.
+    train_criterion = nn.CrossEntropyLoss(label_smoothing=args.label_smoothing)
+    val_criterion = nn.CrossEntropyLoss()
 
     def make_optimizer(lr):
         params = [p for p in model.parameters() if p.requires_grad]
         return torch.optim.Adam(params, lr=lr)
 
     optimizer = make_optimizer(args.lr_head)
+    scheduler = None
     print(f"Paramètres entraînables : {count_trainable(model):,}")
 
     best_f1, history = -1.0, []
     for epoch in range(1, args.epochs + 1):
-        # Config B : après quelques époques, on dégèle layer4
-        if args.mode == "finetune" and epoch == args.head_epochs + 1:
+        if args.mode != "head" and epoch == args.head_epochs + 1:
+            if args.mode == "finetune3":
+                unfreeze_layer3(model)
             unfreeze_layer4(model)
             optimizer = make_optimizer(args.lr_finetune)
-            print(f"--> layer4 dégelé, lr={args.lr_finetune}, "
+            if args.cosine:
+                scheduler = CosineAnnealingLR(
+                    optimizer, T_max=args.epochs - args.head_epochs
+                )
+            print(f"--> dégel effectué, lr={args.lr_finetune}, "
                   f"paramètres entraînables : {count_trainable(model):,}")
 
         start = time.time()
-        tr_loss, tr_acc, _ = run_epoch(model, train_loader, criterion, device, optimizer)
-        va_loss, va_acc, va_f1 = run_epoch(model, val_loader, criterion, device)
+        tr_loss, tr_acc, _ = run_epoch(model, train_loader, train_criterion, device, optimizer)
+        va_loss, va_acc, va_f1 = run_epoch(model, val_loader, val_criterion, device)
+        if scheduler is not None:
+            scheduler.step()
         history.append({
             "epoch": epoch,
             "train_loss": tr_loss, "train_acc": tr_acc,
@@ -116,6 +141,7 @@ def main() -> None:
                 "model_state_dict": model.state_dict(),
                 "classes": CLASSES,
                 "mode": args.mode,
+                "tag": name,
                 "epoch": epoch,
                 "val_macro_f1": va_f1,
                 "val_acc": va_acc,

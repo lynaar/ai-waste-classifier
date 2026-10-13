@@ -76,8 +76,24 @@ def load_splits(splits_dir: Path = SPLITS_DIR):
     )
 
 
-def get_transforms(train: bool):
+def get_transforms(train: bool, strong: bool = False):
     """Augmentation seulement pour train ; resize + normalisation pour val/test."""
+    if train and strong:
+        return transforms.Compose(
+            [
+                transforms.RandomResizedCrop(IMAGE_SIZE, scale=(0.4, 1.0), ratio=(0.75, 1.33)),
+                transforms.RandomHorizontalFlip(),
+                transforms.RandomRotation(25),
+                transforms.ColorJitter(brightness=0.5, contrast=0.5, saturation=0.4, hue=0.05),
+                transforms.RandomGrayscale(p=0.1),
+                transforms.RandomApply(
+                    [transforms.GaussianBlur(kernel_size=5, sigma=(0.1, 2.0))], p=0.3
+                ),
+                transforms.ToTensor(),
+                transforms.Normalize(IMAGENET_MEAN, IMAGENET_STD),
+                transforms.RandomErasing(p=0.25, scale=(0.02, 0.15)),
+            ]
+        )
     if train:
         return transforms.Compose(
             [
@@ -116,10 +132,10 @@ class WasteDataset(Dataset):
         return image, int(row["label_idx"])
 
 
-def get_dataloaders(batch_size: int = 32, num_workers: int = 0):
+def get_dataloaders(batch_size: int = 32, num_workers: int = 0, strong_aug: bool = False):
     """Charge les CSV et retourne les DataLoaders train / val / test."""
     train_df, val_df, test_df = load_splits()
-    train_ds = WasteDataset(train_df, get_transforms(train=True))
+    train_ds = WasteDataset(train_df, get_transforms(train=True, strong=strong_aug))
     val_ds = WasteDataset(val_df, get_transforms(train=False))
     test_ds = WasteDataset(test_df, get_transforms(train=False))
 

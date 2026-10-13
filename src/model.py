@@ -27,7 +27,12 @@ def unfreeze_layer4(model: nn.Module) -> None:
     for param in model.layer4.parameters():
         param.requires_grad = True
 
+def unfreeze_layer3(model: nn.Module) -> None:
+    """Dégèle aussi le bloc layer3 (fine-tuning plus profond)."""
+    for param in model.layer3.parameters():
+        param.requires_grad = True
 
+        
 def set_train_mode(model: nn.Module) -> None:
     """Mode entraînement, mais les couches BatchNorm gelées restent en mode eval.
 
