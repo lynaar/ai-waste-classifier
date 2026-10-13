@@ -9,7 +9,7 @@ from PIL import Image, ImageOps
 from data_utils import get_transforms
 from model import build_model
 
-DEFAULT_CHECKPOINT = "models/best_finetune.pth"
+DEFAULT_CHECKPOINT = "models/best_D.pth"
 
 
 def get_device() -> torch.device:

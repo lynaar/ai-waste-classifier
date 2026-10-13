@@ -11,9 +11,9 @@ from PIL import Image, UnidentifiedImageError
 sys.path.append(str(Path(__file__).parent / "src"))
 from predict import load_trained_model, predict_image, prepare_image  # noqa: E402
 
-CHECKPOINT = Path(__file__).parent / "models" / "best_finetune.pth"
+CHECKPOINT = Path(__file__).parent / "models" / "best_D.pth"
 # Seuil d'avertissement : choix d'interface, PAS une valeur mesurée
-LOW_CONFIDENCE = 0.50
+LOW_CONFIDENCE = 0.70
 
 st.set_page_config(page_title="AI Waste Classifier", page_icon="♻️", layout="centered")
 
@@ -31,6 +31,8 @@ def show_result(image: Image.Image, result: dict) -> None:
     with col_result:
         st.subheader(result["label"].capitalize())
         st.metric("Confiance", f"{result['confidence']:.1%}")
+        top3 = sorted(result["probabilities"].items(), key=lambda kv: -kv[1])[:3]
+        st.caption("Top 3 : " + " · ".join(f"{n} {p:.0%}" for n, p in top3))
         if result["confidence"] < LOW_CONFIDENCE:
             st.warning(
                 "Prédiction incertaine. Essayez avec l'objet seul, "
