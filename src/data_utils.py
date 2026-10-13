@@ -1,11 +1,10 @@
-"""Étape 2 : préparation des données (split, transformations, DataLoaders)."""
+"""Préparation des données : split, transformations, Dataset, DataLoaders."""
 
+import random
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFilter
-
 import pandas as pd
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFilter
 from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
@@ -175,3 +174,23 @@ class WasteDataset(Dataset):
         return image, int(row["label_idx"])
 
 
+def get_dataloaders(batch_size: int = 32, num_workers: int = 0,
+                    strong_aug: bool = False, clutter: bool = False):
+    """Charge les CSV et retourne les DataLoaders train / val / test."""
+    train_df, val_df, test_df = load_splits()
+    train_ds = WasteDataset(
+        train_df, get_transforms(train=True, strong=strong_aug, clutter=clutter)
+    )
+    val_ds = WasteDataset(val_df, get_transforms(train=False))
+    test_ds = WasteDataset(test_df, get_transforms(train=False))
+
+    train_loader = DataLoader(
+        train_ds, batch_size=batch_size, shuffle=True, num_workers=num_workers
+    )
+    val_loader = DataLoader(
+        val_ds, batch_size=batch_size, shuffle=False, num_workers=num_workers
+    )
+    test_loader = DataLoader(
+        test_ds, batch_size=batch_size, shuffle=False, num_workers=num_workers
+    )
+    return train_loader, val_loader, test_loader
