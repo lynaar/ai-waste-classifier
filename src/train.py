@@ -78,6 +78,8 @@ def main() -> None:
                         help="learning rate décroissant (cosinus) après le dégel")
     parser.add_argument("--tag", default=None,
                         help="nom des fichiers de sortie (défaut : le mode)")
+    parser.add_argument("--initial-checkpoint", default=None,
+                        help="checkpoint existant utilisé comme point de départ (sans poids ImageNet)")
     args = parser.parse_args()
 
     name = args.tag or args.mode
@@ -97,7 +99,14 @@ def main() -> None:
         strong_aug=args.strong_aug, clutter=args.clutter,
     )
 
-    model = build_model().to(device)
+    # Un checkpoint local évite de télécharger les poids ImageNet et permet de
+    # poursuivre l'apprentissage à partir d'un modèle déjà entraîné.
+    model = build_model(pretrained=args.initial_checkpoint is None)
+    if args.initial_checkpoint:
+        initial = torch.load(args.initial_checkpoint, map_location="cpu")
+        model.load_state_dict(initial["model_state_dict"])
+        print(f"Poids initiaux chargés depuis : {args.initial_checkpoint}")
+    model = model.to(device)
     freeze_backbone(model)
     # Le label smoothing s'applique à l'entraînement ; la validation utilise la
     # cross-entropy standard, pour rester comparable aux configurations A et B.
